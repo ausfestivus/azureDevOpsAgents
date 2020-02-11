@@ -1,0 +1,110 @@
+# README FIRST
+# This is a template azure-pipeline.yaml and wont actually work without some adjustment.
+# The intent of the template is to provide sufficient code outlines for most of our usual workflows.
+
+# These are the only branches we will run the pipeline for.
+trigger:
+  #batch: true
+  branches:
+    include:
+    - master
+    - develop/*
+    exclude:
+    - releases/old*
+  paths:
+    exclude:
+    - 'docs/' # dont trigger when we update some Markdown.
+    - 'README.md'
+pr: none # Don't run against PRs
+
+# README re variables
+
+# variables which you need to configure are marked with #FIXME
+
+# AZURE_SP_NAME_DEV   - The service connection name to use for the DEV environment.
+# AZURE_SP_NAME_PROD  - The service connection name to use for the PROD environment.
+# PROJECT_NAME        - Usually matches the ADO Project name. *MUST* be 10 chars or less.
+# BUSINESS_OWNER      -
+# TECHNICAL_OWNER     -
+# LOCATION            - The Azure region to deploy to.
+# Global Variables that are common for all stages, jobs and steps.
+# You shouldn't have environment specific variables in here.
+variables:
+  AZURE_SP_NAME_DEV: 'cpt-azure-devops-dev-sp'
+  AZURE_SP_NAME_PROD: '' #FIXME
+  PROJECT_NAME: 'adoAgents' #max 10 chars #FIXME
+  BUSINESS_OWNER: 'brendan.speet@csiro.au' #FIXME
+  TECHNICAL_OWNER: 'andrew.best@csiro.au' #FIXME
+  LOCATION: 'australiacentral' # australiacentral, australiaeast or australiasoutheast #FIXME
+  VMIMAGENAME: 'ubuntu-latest'
+  REPO_NAME: '$(Build.Repository.Name)'
+  BRANCH_NAME: '$(Build.SourceBranchName)'
+  BUILDER: '$(Build.RequestedFor)'
+  # Pipeline Specific Vars below.
+  AGENTPOOLRESOURCEGROUP: 'adoAgents-rg'
+  IMAGERESOURCEGROUP: ''
+  MANAGEDIMAGENAME: ''
+  MANAGEDIMAGERESOURCEGROUPNAME: ''
+  PACKERFILE: ''
+  VMNAME: ''
+  VMUSER: ''
+  VMUSERPASSWORD: ''
+  ADOTOKEN: ''
+  ADOURL: ''
+  TAGS: 'environment=$(ENVIRONMENT_NAME)
+         app=$(PROJECT_NAME)
+         svcrepo=$(Build.Repository.Uri)
+         businessOwner=$(BUSINESS_OWNER)
+         technicalOwner=$(TECHNICAL_OWNER)
+         terraform=false
+         cicdManaged=true
+         cicdProvider=AzureDevOps
+         createdBy=$(Build.RequestedForEmail)'
+  System.Debug: 'false' # FIXME
+  # Packer Specific Vars below. FIXME - Remove once not needed for reference any more
+  #  PACKR_RG: 'adoAgents-rg' # Resource Group To Use
+  #  PACKR_SA: 'adoagentssa' # Storage Account to Use
+  #  PACKR_PASSWD: 'wordpass09' # secret to use for image user. FIXME - move to secure file library.
+  #  PACKR_GHFT: 'wordpass09' # secret to use for github token. FIXME - move to secure file library
+
+name: $(BuildDefinitionName)_$(SourceBranchName).$(DayOfYear)$(Rev:.r)
+
+stages:
+
+- stage: BuildADOAgents
+  displayName: Deploy ADO Agent VSS
+  #condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/develop/')
+  variables:
+    ENVIRONMENT_PREFIX: 'dev'
+    ENVIRONMENT_NAME: 'development'
+    OBJECT_NAME_BASE: '$(PROJECT_NAME)$(ENVIRONMENT_PREFIX)' # build base object name
+
+  jobs:
+    - job: buildADOImage
+      displayName: 'Build ADO Image'
+      continueOnError: false
+      pool:
+        vmImage: $(VMIMAGENAME)
+      variables:
+      # we dont currently pass any vars into the local template.
+      # you can if you want to though.
+        PLACEHOLDER_VAR: 'PLACEHOLDER_VALUE'
+
+      steps:
+
+        # first we need to get our OWN repo
+        - checkout: self
+        # this task will dump ALL env vars available in the agent.
+        # you can add a `| grep ???` after the `sort` to filter values you're interested in.
+#        - task: Bash@3
+#          displayName: 'env dump'
+#          inputs:
+#            targetType: 'inline'
+#            script: 'env | sort'
+
+        - task: AzurePowerShell@4
+          inputs:
+            azureSubscription: '$(AZURE_SP_NAME_DEV)'
+            ScriptPath: 'release.ps1'
+            ScriptArguments: '-Location "$(LOCATION)" -PackerFile "$(PACKERFILE)" -ClientId "$(CLIENTID)" -ClientSecret "$(CLIENTSECRET)" -TenantId "$(TENANTID)" -SubscriptionId "$(SUBSCRIPTIONID)" -ObjectId "$(OBJECTID)" -ManagedImageResourceGroupName "$(MANAGEDIMAGERESOURCEGROUPNAME)" -ManagedImageName "$(MANAGEDIMAGENAME)"'
+            azurePowerShellVersion: 'LatestVersion'
